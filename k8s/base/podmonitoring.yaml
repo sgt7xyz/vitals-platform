@@ -1,0 +1,14 @@
+# Google Cloud Managed Service for Prometheus scrapes /metrics every 30s
+# and stores the series in Cloud Monitoring, where the SLO reads them.
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  name: vitals-api
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vitals-api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

@@ -1,0 +1,10 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: vitals-api
+spec:
+  # Node upgrades and spot preemption drains must leave at least one pod serving.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vitals-api

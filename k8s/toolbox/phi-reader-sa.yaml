@@ -1,0 +1,6 @@
+# Terraform granted roles/storage.objectViewer on the PHI bucket directly to this
+# Kubernetes identity (principal://.../subject/ns/toolbox/sa/phi-reader). No Google SA, no key.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: phi-reader

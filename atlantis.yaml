@@ -1,0 +1,20 @@
+# Stretch: the same plan/apply flow driven by Atlantis instead of GitHub Actions.
+# Atlantis runs as a server (often inside the cluster), listens to PR webhooks,
+# and posts plans as comments. Reviewers type `atlantis apply` to apply.
+version: 3
+automerge: false
+projects:
+  - name: vitals-dev
+    dir: terraform
+    workflow: gcs-backend
+    autoplan:
+      when_modified: ["*.tf", "dashboards/*.json"]
+      enabled: true
+    apply_requirements: [approved, mergeable]
+workflows:
+  gcs-backend:
+    plan:
+      steps:
+        - init:
+            extra_args: ["-backend-config=bucket=YOUR_PROJECT_ID-tfstate"]
+        - plan

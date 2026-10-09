@@ -5,3 +5,4 @@ terraform.tfvars
 tfplan
 plan.txt
 __pycache__/
+bootstrap/.project_id

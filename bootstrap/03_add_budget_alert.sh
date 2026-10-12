@@ -15,8 +15,8 @@ BUDGET_AMOUNT="${BUDGET_AMOUNT:-50USD}"
 
 gcloud services enable billingbudgets.googleapis.com
 
-if [[ -n "$(gcloud billing budgets list --billing-account="$BILLING_ID" \
-      --filter="displayName=${BUDGET_NAME}" --format='value(name)')" ]]; then
+if gcloud billing budgets list --billing-account="$BILLING_ID" \
+      --format='value(displayName)' | grep -qxF "$BUDGET_NAME"; then
   echo "Budget ${BUDGET_NAME} already exists on ${BILLING_ID}, skipping"
 else
   gcloud billing budgets create --billing-account="$BILLING_ID" \

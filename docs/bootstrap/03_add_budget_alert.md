@@ -25,7 +25,7 @@ gcloud billing budgets create --billing-account="$BILLING_ID" \
   --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 --threshold-rule=percent=1.0 \
   --filter-projects="projects/$PROJECT_ID"
 ```
-This runs only if no budget with that name exists yet (it checks with `gcloud billing budgets list --filter`), so re-runs are safe. `BUDGET_NAME` and `BUDGET_AMOUNT` default to `vitals-lab` and `50USD` and can be overridden inline.
+This runs only if no budget with that name exists yet (it lists existing budgets with `gcloud billing budgets list --format='value(displayName)'` and looks for an exact name match with `grep -qxF`), so re-runs are safe. The match is done with `grep` rather than gcloud's `--filter` because `--filter` prints a harmless but confusing `filter keys were not present in any resource : displayName` warning when the billing account has no budgets yet. `BUDGET_NAME` and `BUDGET_AMOUNT` default to `vitals-lab` and `50USD` and can be overridden inline.
 - Budgets belong to the **billing account**, not the project, which is why `--billing-account` is needed.
 - `--budget-amount`: $50 by default.
 - Three `--threshold-rule`s: alert at **50% ($25)**, **90% ($45)** and **100% ($50)** of the budget.

@@ -42,7 +42,7 @@ A smoke test. If any tool isn't on the `PATH`, the script fails loudly here, not
 
 ## Things a mentor would flag
 
-1. **macOS only.** `brew install --cask` doesn't work on Linux. Fine for a personal lab, but note it in the README.
+1. **Effectively macOS only.** Casks were historically macOS-only, and most still are. Recent Homebrew versions let a cask declare Linux support, but `google-cloud-sdk` is not guaranteed to be one of them, so `brew install --cask` may fail or be skipped on Linux. Fine for a personal lab, but note it in the README.
 2. **Global pinning, no version numbers.** `mise use -g terraform` takes the latest and applies it to every project on your machine. For a team repo you'd commit a `.mise.toml` or `.tool-versions` with exact versions, so everyone (and CI) runs the same Terraform. Version drift is a common cause of "works on my machine."
 3. **Not fully idempotent.** `brew install` on an already-installed cask will warn or error depending on the version, and with `set -e` that would stop the script. Re-running is mostly safe, but not guaranteed.
 4. **mise must already be installed**, and so must Homebrew. The script doesn't check for either.

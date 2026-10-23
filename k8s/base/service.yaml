@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vitals-api
+spec:
+  type: ClusterIP # the dev overlay turns this into a LoadBalancer on the Terraform IP
+  selector:
+    app.kubernetes.io/name: vitals-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

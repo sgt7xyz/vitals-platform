@@ -1,0 +1,131 @@
+name: terraform
+
+on:
+  pull_request:
+    paths: ["terraform/**", "k8s/**", ".github/workflows/terraform.yml"]
+  push:
+    branches: [main]
+    paths: ["terraform/**", "k8s/**", ".github/workflows/terraform.yml"]
+  workflow_dispatch:
+
+# One Terraform run at a time against the same state.
+concurrency:
+  group: terraform-dev
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write       # lets the job request a GitHub OIDC token for Workload Identity Federation
+  pull-requests: write  # lets the plan job comment on the PR
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+  TF_VAR_github_repo: ${{ github.repository }}
+  TF_VAR_admin_cidr: ${{ secrets.ADMIN_CIDR }}
+  TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+
+defaults:
+  run:
+    shell: bash # explicit bash turns on pipefail, so `terraform plan | tee` still fails on errors
+    working-directory: terraform
+
+jobs:
+  policy-scan:
+    name: Policy as code (Checkov)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.2"
+      - name: Install kustomize
+        run: go install sigs.k8s.io/kustomize/kustomize/v5@v5.5.0
+      - name: Scan Terraform and Kubernetes
+        working-directory: .
+        # Terraform findings block the merge; Kubernetes findings warn while you triage (--soft-fail means violations are reported but don't block)
+        run: |
+          set -euo pipefail
+          pip install --quiet checkov==3.2.57
+          checkov -d terraform --framework terraform --compact
+          # scan what Argo CD will actually apply, not the raw kustomize inputs
+          mkdir -p rendered
+          for d in overlays/dev toolbox tenants; do kustomize build "k8s/$d" > "rendered/$(basename "$d").yaml"; done
+          checkov -d rendered --framework kubernetes --compact --soft-fail
+
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_TF_SA }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: fmt
+        run: terraform fmt -check -recursive
+
+      - name: init
+        run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      - name: validate
+        run: terraform validate
+
+      - name: plan
+        id: plan
+        run: terraform plan -input=false -no-color -lock-timeout=5m -out=tfplan | tee plan.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tfplan
+          path: tfplan
+          retention-days: 1
+
+      - name: Comment plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('terraform/plan.txt', 'utf8');
+            const maxLen = 60000;
+            const truncated = plan.length > maxLen;
+            const planText = truncated ? plan.slice(-maxLen) : plan;
+            const warning = truncated ? '\n⚠️ **Plan output truncated.** See artifact for full plan.\n' : '';
+            const body = '### Terraform plan\n' + warning + '\n```hcl\n' + planText + '\n```';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number, body,
+            });
+
+  apply:
+    name: Apply
+    needs: [policy-scan, plan]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: dev # add required reviewers on this environment for a manual gate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_TF_SA }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+      - uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: terraform
+      - run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+      - run: terraform apply -input=false -auto-approve -lock-timeout=5m tfplan

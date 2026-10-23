@@ -73,56 +73,58 @@ locals {
   requests_metric = "metric.type=\"prometheus.googleapis.com/vitals_http_requests_total/counter\" resource.type=\"prometheus_target\" resource.label.namespace=\"vitals\""
 }
 
-resource "google_monitoring_slo" "availability" {
-  service      = google_monitoring_custom_service.vitals.service_id
-  slo_id       = "availability"
-  display_name = "99.9% of API requests succeed (28d rolling)"
-
-  goal                = var.slo_goal
-  rolling_period_days = 28
-
-  request_based_sli {
-    good_total_ratio {
-      bad_service_filter   = "${local.requests_metric} metric.label.code_class=\"5xx\""
-      total_service_filter = local.requests_metric
-    }
-  }
-}
+# TEMPORARILY DISABLED: Uncomment after app is deployed and metrics are available (~10 min).
+# resource "google_monitoring_slo" "availability" {
+#   service      = google_monitoring_custom_service.vitals.service_id
+#   slo_id       = "availability"
+#   display_name = "99.9% of API requests succeed (28d rolling)"
+#
+#   goal                = var.slo_goal
+#   rolling_period_days = 28
+#
+#   request_based_sli {
+#     good_total_ratio {
+#       bad_service_filter   = "${local.requests_metric} metric.label.code_class=\"5xx\""
+#       total_service_filter = local.requests_metric
+#     }
+#   }
+# }
 
 # Multi-window burn-rate alerting (Google SRE workbook, chapter 5):
 #  fast burn 14.4x over 1h = 2% of the 28-day budget gone in an hour -> page
 #  slow burn 6x over 6h    = 5% of the budget gone in six hours     -> page
-resource "google_monitoring_alert_policy" "slo_burn" {
-  display_name = "Vitals API burning error budget"
-  combiner     = "OR"
-
-  conditions {
-    display_name = "Fast burn (14.4x, 1h)"
-    condition_threshold {
-      filter          = "select_slo_burn_rate(\"${google_monitoring_slo.availability.name}\", \"60m\")"
-      comparison      = "COMPARISON_GT"
-      threshold_value = 14.4
-      duration        = "0s"
-    }
-  }
-
-  conditions {
-    display_name = "Slow burn (6x, 6h)"
-    condition_threshold {
-      filter          = "select_slo_burn_rate(\"${google_monitoring_slo.availability.name}\", \"360m\")"
-      comparison      = "COMPARISON_GT"
-      threshold_value = 6
-      duration        = "0s"
-    }
-  }
-
-  notification_channels = [google_monitoring_notification_channel.email.name]
-
-  documentation {
-    content   = "Error budget burning. Runbook: docs/runbook-high-error-rate.md"
-    mime_type = "text/markdown"
-  }
-}
+# TEMPORARILY DISABLED: Uncomment after SLO is created.
+# resource "google_monitoring_alert_policy" "slo_burn" {
+#   display_name = "Vitals API burning error budget"
+#   combiner     = "OR"
+#
+#   conditions {
+#     display_name = "Fast burn (14.4x, 1h)"
+#     condition_threshold {
+#       filter          = "select_slo_burn_rate(\"${google_monitoring_slo.availability.name}\", \"60m\")"
+#       comparison      = "COMPARISON_GT"
+#       threshold_value = 14.4
+#       duration        = "0s"
+#     }
+#   }
+#
+#   conditions {
+#     display_name = "Slow burn (6x, 6h)"
+#     condition_threshold {
+#       filter          = "select_slo_burn_rate(\"${google_monitoring_slo.availability.name}\", \"360m\")"
+#       comparison      = "COMPARISON_GT"
+#       threshold_value = 6
+#       duration        = "0s"
+#     }
+#   }
+#
+#   notification_channels = [google_monitoring_notification_channel.email.name]
+#
+#   documentation {
+#     content   = "Error budget burning. Runbook: docs/runbook-high-error-rate.md"
+#     mime_type = "text/markdown"
+#   }
+# }
 
 # ---------- Logs: count application errors ----------
 resource "google_logging_metric" "vitals_errors" {

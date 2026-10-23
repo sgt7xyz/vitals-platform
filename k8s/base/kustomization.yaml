@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: vitals
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: vitals-platform
+    includeSelectors: false
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - deployment.yaml
+  - service.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - networkpolicy.yaml
+  - podmonitoring.yaml
+# The hash suffix kustomize adds to this name means any config change
+# produces a new ConfigMap name, which forces a rolling restart.
+configMapGenerator:
+  - name: vitals-config
+    literals:
+      - FAIL_RATE=0

@@ -1,0 +1,55 @@
+name: new-tenant
+
+# Self-service: a team fills in this form in the Actions tab, a PR appears,
+# the platform team reviews and merges, Argo CD creates the namespace.
+on:
+  workflow_dispatch:
+    inputs:
+      team:
+        description: "Team name (lowercase, dashes ok)"
+        required: true
+      owner:
+        description: "Owner Google identity email"
+        required: true
+      cpu:
+        description: "CPU request quota"
+        default: "2"
+      memory:
+        description: "Memory quota"
+        default: "4Gi"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  open-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Generate tenant
+        env:
+          TEAM: ${{ inputs.team }}
+          OWNER: ${{ inputs.owner }}
+          CPU: ${{ inputs.cpu }}
+          MEMORY: ${{ inputs.memory }}
+        # inputs go through env vars, never ${{ }} inside the script, to block shell injection
+        run: python3 tools/new_tenant.py --team "$TEAM" --owner "$OWNER" --cpu "$CPU" --memory "$MEMORY"
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEAM: ${{ inputs.team }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          branch="tenant/${TEAM}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add k8s/tenants
+          git commit -m "tenant: onboard ${TEAM}"
+          git push -u origin "$branch"
+          gh pr create --title "Onboard tenant ${TEAM}" \
+            --body "Requested by @${ACTOR} via the new-tenant workflow. Merging lets Argo CD create namespace team-${TEAM}."

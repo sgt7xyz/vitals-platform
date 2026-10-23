@@ -1,0 +1,104 @@
+name: app
+
+on:
+  pull_request:
+    paths: ["app/**", ".github/workflows/app.yml"]
+  push:
+    branches: [main]
+    paths: ["app/**", ".github/workflows/app.yml"]
+
+# One release at a time; cancel in-progress builds if a new push arrives
+concurrency:
+  group: release-app
+  cancel-in-progress: true
+
+permissions:
+  contents: write  # the release job commits the new image tag back to Git
+  id-token: write
+
+env:
+  REGION: us-east1
+  IMAGE: us-east1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/vitals/vitals-api
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: app/go.mod
+      - run: "! gofmt -l . | grep -q ."
+      - run: go vet ./...
+      - run: go test -race -count=1 ./...
+
+  release:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        run: echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        run: docker build --build-arg VERSION=${{ steps.meta.outputs.tag }} -t "$IMAGE:${{ steps.meta.outputs.tag }}" app
+
+      - name: Scan image (fail on fixable HIGH/CRITICAL)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.57.1 image --exit-code 1 --ignore-unfixed \
+            --severity HIGH,CRITICAL "$IMAGE:${{ steps.meta.outputs.tag }}"
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_BUILDER_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: app/go.mod
+
+      - name: Install kustomize
+        run: go install sigs.k8s.io/kustomize/kustomize/v5@v5.5.0
+
+      - name: Push image
+        run: |
+          set -euo pipefail
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          docker push "$IMAGE:${{ steps.meta.outputs.tag }}"
+
+      # GitOps hand-off: CI never touches the cluster. It records the desired
+      # image in Git and Argo CD pulls the change.
+      - name: Bump image tag in the dev overlay
+        run: |
+          set -euo pipefail
+          cd k8s/overlays/dev
+          kustomize edit set image "vitals-api=$IMAGE:${{ steps.meta.outputs.tag }}"
+          cd - > /dev/null  # return to repo root for git operations
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- k8s/overlays/dev/kustomization.yaml; then
+            echo "Image tag already up to date, skipping commit"
+          else
+            git add k8s/overlays/dev/kustomization.yaml
+            git commit -m "deploy: vitals-api ${{ steps.meta.outputs.tag }}"
+            # Retry push up to 3 times in case of transient failures
+            for attempt in 1 2 3; do
+              if git push; then
+                break
+              elif [ "$attempt" -lt 3 ]; then
+                echo "Push failed, retrying in 5s (attempt $attempt/3)..."
+                sleep 5
+              else
+                echo "Push failed after 3 attempts" >&2
+                exit 1
+              fi
+            done
+          fi

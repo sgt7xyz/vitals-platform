@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars (gitignored) for local runs.
+# In CI these arrive as TF_VAR_* from GitHub variables and secrets instead.
+project_id  = "vitals-lab-1008"
+github_repo = "sgt7xyz/vitals-platform"
+admin_cidr  = "108.197.10.98/32" # curl -s ifconfig.me, then add /32
+alert_email = "sgt7xyz@gmail.com"
